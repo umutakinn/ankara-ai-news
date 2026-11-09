@@ -28,7 +28,7 @@ OTHER_CITIES = [
     "diyarbakır", "şanlıurfa", "muğla", "balıkesir", "denizli",
     "manisa", "sakarya", "kocaeli"
 ]
-QUERIES = [
+ANKARA_QUERIES = [
     '"Ankara" asayiş OR operasyon OR gözaltı OR güvenlik',
     '"Ankara" trafik kazası OR yol kapandı OR ulaşım',
     '"Ankara" yangın OR patlama OR deprem OR afet',
@@ -36,6 +36,26 @@ QUERIES = [
     'site:ankara.pol.tr trafik OR asayiş OR duyuru',
     'site:ankara.bel.tr yol OR ulaşım OR duyuru',
     'site:afad.gov.tr Ankara açıklama OR uyarı'
+]
+# Türkiye genelinde yalnızca yüksek etkili olayları arar.
+NATIONAL_QUERIES = [
+    '"fabrikada patlama" OR "iş yerinde patlama" OR "demir çelik fabrikası"',
+    '"maden kazası" OR madende göçük OR "işçi hayatını kaybetti"',
+    '"çok sayıda kişi hayatını kaybetti" OR "can kaybı" OR "ölü sayısı"',
+    '"orman yangını" OR "büyük yangın" OR "sel felaketi" OR heyelan',
+    '"tren kazası" OR "uçak kazası" OR "otobüs kazası"'
+]
+NATIONAL_MAJOR_TERMS = [
+    "patlama", "fabrika", "demir celik", "maden", "gocuk", "deprem",
+    "orman yangini", "sel felaketi", "heyelan", "tren kazasi",
+    "ucak kazasi", "otobus kazasi", "cok sayida olu", "can kaybi",
+    "hayatini kaybetti", "hayatlarini kaybetti", "olu sayisi",
+    "isciler hayatini kaybetti", "is kazasi"
+]
+NATIONAL_SEVERITY_TERMS = [
+    "olu", "hayatini kaybetti", "hayatlarini kaybetti", "can kaybi",
+    "yarali", "cok sayida", "fabrika", "maden", "gocuk", "patlama",
+    "orman yangini", "sel felaketi", "tren kazasi", "ucak kazasi"
 ]
 STATE_FILE = "state.json"
 HEADERS = {"User-Agent": "Mozilla/5.0 (compatible; AnkaraNewsMonitor/1.2)"}
@@ -103,6 +123,42 @@ def clean_headline(title, source_name):
     cleaned = re.sub(r"\s*[–—-]\s*ANKARA\s*$", "", cleaned, flags=re.IGNORECASE)
     cleaned = re.sub(r"\s*\(\s*ANKARA\s*\)\s*$", "", cleaned, flags=re.IGNORECASE)
     return cleaned.strip(" -–—")
+
+
+def is_national_major_event(title, summary, source_name):
+    headline = clean_headline(title, source_name)
+    text = normalize(headline + " " + summary)
+    has_major_event = any(normalize(term) in text for term in NATIONAL_MAJOR_TERMS)
+    has_severity = any(normalize(term) in text for term in NATIONAL_SEVERITY_TERMS)
+    # Sıradan şehir haberlerini değil, ülke çapında önem taşıyan ağır olayları al.
+    return has_major_event and has_severity
+
+
+def detect_national_location(title, summary, source_name):
+    text = normalize(clean_headline(title, source_name) + " " + summary)
+    # İlçe adı başlık/özet içinde geçiyorsa bilinen ilini göster.
+    district_to_city = {
+        "aliaga": "İzmir / Aliağa", "bergama": "İzmir / Bergama",
+        "iskenderun": "Hatay / İskenderun", "dilovasi": "Kocaeli / Dilovası",
+        "gebze": "Kocaeli / Gebze", "somali": "Manisa / Soma",
+        "ermenek": "Karaman / Ermenek", "kozlu": "Zonguldak / Kozlu"
+    }
+    for district, label in district_to_city.items():
+        if has_phrase(text, district):
+            return label
+    cities = {
+        "izmir": "İzmir", "istanbul": "İstanbul", "mersin": "Mersin",
+        "hatay": "Hatay", "kocaeli": "Kocaeli", "manisa": "Manisa",
+        "zonguldak": "Zonguldak", "kahramanmaras": "Kahramanmaraş",
+        "adana": "Adana", "antalya": "Antalya", "bursa": "Bursa",
+        "gaziantep": "Gaziantep", "sanliurfa": "Şanlıurfa",
+        "diyarbakir": "Diyarbakır", "erzincan": "Erzincan",
+        "canakkale": "Çanakkale", "bolu": "Bolu", "ankara": "Ankara"
+    }
+    for city, label in cities.items():
+        if has_phrase(text, city):
+            return label
+    return "Türkiye (olay yeri teyit edilmeli)"
 
 
 def is_really_about_ankara(title, summary, source_name):
@@ -206,7 +262,10 @@ def main():
     cutoff = now - timedelta(hours=3)
     candidates = []
 
-    for query in QUERIES:
+    all_queries = [(q, "ANKARA") for q in ANKARA_QUERIES]
+    all_queries += [(q, "TURKIYE") for q in NATIONAL_QUERIES]
+
+    for query, feed_type in all_queries:
         url = (
             "https://news.google.com/rss/search?q="
             + quote("(" + query + ") when:3h")
@@ -222,9 +281,19 @@ def main():
                     continue
                 source_name, source_domain = get_source(entry)
                 title = clean_headline(raw_title, source_name)
-                if not is_really_about_ankara(raw_title, summary, source_name):
-                    print("Ankara'da gerçekleştiği doğrulanamadı, elendi:", raw_title)
-                    continue
+                if feed_type == "ANKARA":
+                    if not is_really_about_ankara(raw_title, summary, source_name):
+                        print("Ankara'da gerçekleştiği doğrulanamadı, elendi:", raw_title)
+                        continue
+                    category = "ANKARA GÜNDEM"
+                    location = detect_location(raw_title, source_name)
+                else:
+                    if not is_national_major_event(raw_title, summary, source_name):
+                        print("Türkiye geneli için yeterince büyük olay değil, elendi:", raw_title)
+                        continue
+                    category = "TÜRKİYE GÜNDEMİ"
+                    location = detect_national_location(raw_title, summary, source_name)
+
                 published = get_published(entry)
                 if not published or published < cutoff:
                     continue
