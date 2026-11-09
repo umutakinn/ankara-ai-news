@@ -38,9 +38,9 @@ QUERIES = [
     'site:afad.gov.tr Ankara açıklama OR uyarı'
 ]
 STATE_FILE = "state.json"
-HEADERS = {"User-Agent": "Mozilla/5.0 (compatible; AnkaraNewsMonitor/1.1)"}
+HEADERS = {"User-Agent": "Mozilla/5.0 (compatible; AnkaraNewsMonitor/1.2)"}
 STOPWORDS = {
-    "ankara", "icin", "icin", "hangi", "neler", "son", "dakika", "gundem",
+    "ankara", "icin", "hangi", "neler", "son", "dakika", "gundem",
     "aciklama", "haber", "haberleri", "gelisme", "gelismesi", "bugun",
     "yeni", "ile", "ve", "bir", "de", "da", "mi", "mu", "ne"
 }
@@ -92,13 +92,16 @@ def get_source(entry):
 
 
 def clean_headline(title, source_name):
-    # Google News başlıklarının sonundaki yayın adı, olay konumu değildir.
     cleaned = title.strip()
     if source_name:
         cleaned = re.sub(
             r"\s+[–—-]\s+" + re.escape(source_name.strip()) + r"\s*$",
             "", cleaned, flags=re.IGNORECASE
         )
+    # ANKA gibi ajansların "(ANKARA)" veya "- ANKARA" mahreci olay yeri
+    # değildir. Yalnızca başlığın en sonundaki dateline kaldırılır.
+    cleaned = re.sub(r"\s*[–—-]\s*ANKARA\s*$", "", cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r"\s*\(\s*ANKARA\s*\)\s*$", "", cleaned, flags=re.IGNORECASE)
     return cleaned.strip(" -–—")
 
 
@@ -106,7 +109,6 @@ def is_really_about_ankara(title, summary, source_name):
     headline = clean_headline(title, source_name)
     h = normalize(headline)
 
-    # Ankara yönü/istikameti, olayın Ankara'da olduğu anlamına gelmez.
     directional = [
         "ankara istikametinde", "ankara yonunde", "ankara ya dogru",
         "ankara istikametine", "ankara yonune"
@@ -114,28 +116,23 @@ def is_really_about_ankara(title, summary, source_name):
     if any(has_phrase(headline, phrase) for phrase in directional):
         return False
 
-    # Başlıkta gerçek olay yeri olarak Ankara veya Ankara ilçesi aranır.
+    # Başlıkta Ankara veya Ankara ilçesi gerçek olay yeri olarak geçmeli.
     if not any(has_phrase(headline, place) for place in ANKARA_PLACES):
         return False
 
-    # Başlıkta başka şehir de olay yeri olarak geçiyorsa, Ankara açıkça
-    # olayın yeri değilse ele. Yayın adı clean_headline ile çıkarılmıştır.
+    # Başlıkta İzmir/Aliağa gibi başka bir yer belirtilmişse Ankara etiketi
+    # üzerinden içeri alınmasına izin verme.
     other_city = any(has_phrase(headline, city) for city in OTHER_CITIES)
-    explicit_ankara = has_phrase(headline, "ankara")
-    if other_city and not explicit_ankara:
+    if other_city and not has_phrase(headline, "ankara"):
         return False
 
-    # Sadece Ankara etiketi taşıyan ulusal/siyasi haberleri elemek için
-    # başlıkta Ankara konumuna ek olarak yerel olay/duyuru bağlamı aranır.
     event_terms = [
         "kaza", "trafik", "yol", "kapali", "kapandi", "yangin", "patlama",
         "gozalti", "operasyon", "polis", "emniyet", "valilik", "belediye",
         "deprem", "afet", "duyuru", "uyari", "denetim", "olay", "yarali",
         "hayatini kaybetti", "toren", "ulasim", "su kesintisi", "elektrik"
     ]
-    if not any(term in h for term in map(normalize, event_terms)):
-        return False
-    return True
+    return any(term in h for term in map(normalize, event_terms))
 
 
 def get_published(entry):
@@ -152,7 +149,6 @@ def get_published(entry):
 
 
 def extract_direct_url(entry):
-    # Google News RSS özetinde yayıncının gerçek makale bağlantısı varsa al.
     summary = entry.get("summary", "") or ""
     urls = re.findall(r'''href=["'](https?://[^"' ]+)["']''', summary, flags=re.I)
     for candidate in urls:
@@ -177,8 +173,6 @@ def resolve_direct_link(url):
 def event_key(title, published):
     h = normalize(title)
     day = published.strftime("%Y-%m-%d")
-    # 10 Kasım töreniyle ilgili farklı başlıklı yol kapatma haberlerini
-    # aynı olay olarak ele al.
     if "10 kasim" in h and any(x in h for x in ("yol", "trafik", "kapali", "ulasim")):
         return f"{day}:10-kasim-ankara-trafik"
     tokens = {x for x in h.split() if len(x) > 3 and x not in STOPWORDS}
@@ -193,8 +187,7 @@ def similar(a, b):
     tb = {x for x in bb.split() if len(x) > 3 and x not in STOPWORDS}
     if not ta or not tb:
         return False
-    overlap = len(ta & tb) / len(ta | tb)
-    return overlap >= 0.48
+    return len(ta & tb) / len(ta | tb) >= 0.48
 
 
 def detect_location(title, source_name):
