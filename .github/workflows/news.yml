@@ -8,6 +8,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: ankara-haber-takibi
+  cancel-in-progress: false
+
 jobs:
   takip:
     runs-on: ubuntu-latest
@@ -20,6 +24,17 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+
+      # Her çalışmada en son state önbelleğini geri yükle.
+      # Yeni run_id anahtarı sayesinde her çalışmanın sonunda yeni
+      # state önbelleği kaydedilebilir; sabit anahtar kullanılmaz.
+      - name: Önceki haber kayıtlarını yükle
+        uses: actions/cache@v4
+        with:
+          path: state.json
+          key: ankara-news-state-${{ github.run_id }}
+          restore-keys: |
+            ankara-news-state-
 
       - name: Gerekli paketleri yükle
         run: pip install -r requirements.txt
