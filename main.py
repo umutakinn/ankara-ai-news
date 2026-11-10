@@ -258,12 +258,23 @@ def is_useful_detail(text, headline=""):
     text = clean_summary(text, max_chars=1200)
     if len(text) < 90:
         return False
+
     ntext = normalize(text)
     nhead = normalize(headline)
-    if nhead and (ntext == nhead or ntext.startswith(nhead + " ")):
+
+    # Google News RSS bazen özeti "başlık + yayın adı" olarak döndürüyor.
+    # Başlık tekrarını çıkar; geriye yalnızca yayın adı/kısa ibare kalıyorsa reddet.
+    if nhead and ntext.startswith(nhead):
         remainder = ntext[len(nhead):].strip(" :.-")
-        if len(remainder) < 65:
+        words = remainder.split()
+        if len(remainder) < 45 or len(words) < 8:
             return False
+        ntext = remainder
+
+    # Başlığın küçük değişikliklerle yeniden yazıldığı RSS metinlerini de ele.
+    if nhead and difflib.SequenceMatcher(None, ntext, nhead).ratio() >= 0.82:
+        return False
+
     junk = ("google haberler", "google news", "haberin devamini oku", "tum haberleri gor")
     return not any(x in ntext for x in junk)
 
