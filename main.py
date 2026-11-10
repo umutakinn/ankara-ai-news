@@ -8,6 +8,7 @@ import difflib
 import requests
 import feedparser
 from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 from email.utils import parsedate_to_datetime
 from urllib.parse import quote, urlparse
 from html import unescape
@@ -319,7 +320,7 @@ def main():
                 candidates.append({
                     "id": link_id, "event_key": identity, "title": title,
                     "link": direct, "date": published, "source": source_name,
-                    "domain": source_domain, "location": detect_location(title, source_name)
+                    "domain": source_domain, "location": location, "category": category
                 })
         except Exception as error:
             print("Kaynak hatası:", error)
@@ -359,9 +360,9 @@ def main():
             "⚠️ Tek kaynak; bağımsız teyit henüz bulunamadı"
         )
         message = (
-            "🚨 ANKARA GÜNDEM\n\n"
+            f"🚨 {primary['category']}\n\n"
             f"📰 {primary['title']}\n"
-            f"🕒 {primary['date'].astimezone().strftime('%d.%m.%Y %H:%M')}\n"
+            f"🕒 {primary['date'].astimezone(ZoneInfo('Europe/Istanbul')).strftime('%d.%m.%Y %H:%M')}\n"
             f"📍 {primary['location']}\n"
             f"🔎 Doğrulama: {confirmation}\n\n"
             "🔗 Kaynak(lar):\n"
