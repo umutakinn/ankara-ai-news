@@ -205,6 +205,19 @@ def is_really_about_ankara(title, summary, source_name):
     return any(term in h for term in map(normalize, event_terms))
 
 
+def clean_summary(summary, max_chars=480):
+    # RSS özetlerindeki HTML ve gereksiz boşlukları temizle.
+    text = unescape(re.sub(r"<[^>]+>", " ", summary or ""))
+    text = re.sub(r"https?://\\S+", "", text)
+    text = re.sub(r"\\s+", " ", text).strip()
+    text = re.sub(r"\\s*[-–—|]\\s*(Google Haberler|Google News)\\s*$", "", text, flags=re.I)
+    if len(text) > max_chars:
+        shortened = text[:max_chars].rsplit(" ", 1)[0].rstrip(" ,;:-")
+        sentence_end = max(shortened.rfind("."), shortened.rfind("!"), shortened.rfind("?"))
+        text = shortened[:sentence_end + 1] if sentence_end > max_chars * 0.55 else shortened + "…"
+    return text
+
+
 def get_published(entry):
     published = entry.get("published") or entry.get("updated")
     if not published:
@@ -320,7 +333,8 @@ def main():
                 candidates.append({
                     "id": link_id, "event_key": identity, "title": title,
                     "link": direct, "date": published, "source": source_name,
-                    "domain": source_domain, "location": location, "category": category
+                    "domain": source_domain, "location": location, "category": category,
+                    "summary": clean_summary(summary)
                 })
         except Exception as error:
             print("Kaynak hatası:", error)
