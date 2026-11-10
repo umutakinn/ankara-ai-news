@@ -75,7 +75,7 @@ def normalize(text):
     text = unicodedata.normalize("NFKD", text.lower())
     text = "".join(ch for ch in text if not unicodedata.combining(ch))
     text = re.sub(r"[^a-z0-9 ]+", " ", text)
-    return re.sub(r"\\s+", " ", text).strip()
+    return re.sub(r"\s+", " ", text).strip()
 
 def has_phrase(text, phrase):
     return f" {normalize(phrase)} " in f" {normalize(text)} "
