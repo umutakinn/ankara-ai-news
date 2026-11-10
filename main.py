@@ -244,13 +244,16 @@ def clean_summary(summary, max_chars=480):
 
 
 class ArticleTextParser(HTMLParser):
-    """Haber sayfalarından paragraf ve açıklama metinlerini toplar."""
+    """Haber sayfalarından paragraf, meta ve yapılandırılmış haber metni toplar."""
     def __init__(self):
         super().__init__(convert_charrefs=True)
         self.paragraphs = []
         self.meta_descriptions = []
+        self.jsonld = []
         self._in_p = False
         self._parts = []
+        self._in_jsonld = False
+        self._script_parts = []
 
     def handle_starttag(self, tag, attrs):
         attrs = dict(attrs)
@@ -260,6 +263,9 @@ class ArticleTextParser(HTMLParser):
                 value = (attrs.get("content") or "").strip()
                 if value:
                     self.meta_descriptions.append(value)
+        elif tag.lower() == "script" and "ld+json" in (attrs.get("type") or "").lower():
+            self._in_jsonld = True
+            self._script_parts = []
         elif tag.lower() == "p":
             self._in_p = True
             self._parts = []
@@ -267,15 +273,22 @@ class ArticleTextParser(HTMLParser):
     def handle_data(self, data):
         if self._in_p and data.strip():
             self._parts.append(data.strip())
+        if self._in_jsonld:
+            self._script_parts.append(data)
 
     def handle_endtag(self, tag):
         if tag.lower() == "p" and self._in_p:
-            value = re.sub(r"\s+", " ", " ".join(self._parts)).strip()
+            value = re.sub(r"\\s+", " ", " ".join(self._parts)).strip()
             if len(value) >= 45:
                 self.paragraphs.append(value)
             self._in_p = False
             self._parts = []
-
+        elif tag.lower() == "script" and self._in_jsonld:
+            value = "".join(self._script_parts).strip()
+            if value:
+                self.jsonld.append(value)
+            self._in_jsonld = False
+            self._script_parts = []
 
 def is_useful_detail(text, headline=""):
     text = clean_summary(text, max_chars=1200)
@@ -329,8 +342,25 @@ def fetch_article_detail(url, headline):
             # Birkaç anlamlı paragrafı birlikte aktararak haberin gelişme
             # ayrıntılarını da koru.
             return clean_summary(" ".join(paragraphs[:5]), max_chars=1600)
-        for description in parser.meta_descriptions:
-            cleaned = clean_summary(description, max_chars=1200)
+        # Birçok haber sitesi gövde metnini JSON-LD articleBody alanında sunar.
+        structured = []
+        def collect_structured(value):
+            if isinstance(value, dict):
+                for key, item in value.items():
+                    if key.lower() in ("articlebody", "description") and isinstance(item, str):
+                        structured.append(item)
+                    else:
+                        collect_structured(item)
+            elif isinstance(value, list):
+                for item in value:
+                    collect_structured(item)
+        for raw in parser.jsonld:
+            try:
+                collect_structured(json.loads(raw))
+            except (ValueError, TypeError):
+                continue
+        for candidate in structured + parser.meta_descriptions:
+            cleaned = clean_summary(candidate, max_chars=1600)
             if is_useful_detail(cleaned, headline):
                 return cleaned
     except (requests.RequestException, ValueError, TypeError) as error:
