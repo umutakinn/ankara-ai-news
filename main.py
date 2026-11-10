@@ -213,12 +213,19 @@ def is_really_about_ankara(title, summary, source_name):
     if not location_confirmed:
         return False
 
+    # Başlıkta Ankara veya Ankara ilçesi açıkça geçiyorsa, olay türü
+    # listede olmasa bile yerel haber olarak kabul et. Böylece erişim engeli,
+    # okul, belediye ve benzeri haberler yanlışlıkla elenmez.
+    if title_has_ankara:
+        return True
+
     event_terms = [
         "kaza", "trafik", "yol", "kapali", "kapandi", "yangin", "patlama",
         "gozalti", "operasyon", "polis", "emniyet", "valilik", "belediye",
         "deprem", "afet", "duyuru", "uyari", "denetim", "olay", "yarali",
         "hayatini kaybetti", "toren", "ulasim", "su kesintisi", "elektrik",
-        "sorusturma", "supheli", "mahrem yapilanma"
+        "sorusturma", "supheli", "mahrem yapilanma", "erisim engeli",
+        "siteye erisim", "internet sitesi", "egitim", "okul", "hastane"
     ]
     return any(normalize(term) in combined for term in event_terms)
 
@@ -300,8 +307,10 @@ def fetch_article_detail(url, headline):
     if not url:
         return ""
     try:
+        # Google News RSS bağlantısını gerçek yayıncı adresine çöz.
+        resolved_url = resolve_direct_link(url)
         response = requests.get(
-            url, headers=HEADERS, allow_redirects=True, timeout=15
+            resolved_url, headers=HEADERS, allow_redirects=True, timeout=20
         )
         if response.status_code != 200:
             return ""
