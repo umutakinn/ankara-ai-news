@@ -67,7 +67,7 @@ jobs:
               f"https://api.telegram.org/bot{token}/sendMessage",
               json={
                   "chat_id": chat_id,
-                  "text": "🧪 TEST MESAJI\n\nBu mesaj yalnızca Telegram onay butonlarını denemek içindir. Instagram'da paylaşım yapmaz.",
+                  "text": "🧪 TEST HABERİ — GERÇEK DEĞİLDİR\\n\\n📰 Ankara'da test amaçlı örnek bir gelişme başlığı\\n📍 Ankara (temsili)\\n🔎 Bu içerik yalnızca buton denemesi içindir; gerçek haber değildir ve Instagram'da paylaşılmaz.",
                   "reply_markup": keyboard,
                   "disable_web_page_preview": True
               },
