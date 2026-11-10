@@ -95,9 +95,22 @@ def save_state(state):
 
 
 def send_telegram(message):
+    # Her haber için kısa ve benzersiz bir onay kimliği oluştur.
+    approval_id = hashlib.sha256(message.encode("utf-8")).hexdigest()[:20]
+    keyboard = {
+        "inline_keyboard": [[
+            {"text": "✅ Instagram'da Paylaş", "callback_data": f"approve:{approval_id}"},
+            {"text": "❌ Reddet", "callback_data": f"reject:{approval_id}"}
+        ]]
+    }
     response = requests.post(
         f"https://api.telegram.org/bot{TOKEN}/sendMessage",
-        data={"chat_id": CHAT_ID, "text": message, "disable_web_page_preview": True},
+        json={
+            "chat_id": CHAT_ID,
+            "text": message,
+            "disable_web_page_preview": True,
+            "reply_markup": keyboard
+        },
         timeout=20
     )
     response.raise_for_status()
