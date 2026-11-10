@@ -208,9 +208,9 @@ def is_really_about_ankara(title, summary, source_name):
 def clean_summary(summary, max_chars=480):
     # RSS özetlerindeki HTML ve gereksiz boşlukları temizle.
     text = unescape(re.sub(r"<[^>]+>", " ", summary or ""))
-    text = re.sub(r"https?://\\S+", "", text)
-    text = re.sub(r"\\s+", " ", text).strip()
-    text = re.sub(r"\\s*[-–—|]\\s*(Google Haberler|Google News)\\s*$", "", text, flags=re.I)
+    text = re.sub(r"https?://\S+", "", text)
+    text = re.sub(r"\s+", " ", text).strip()
+    text = re.sub(r"\s*[-–—|]\s*(Google Haberler|Google News)\s*$", "", text, flags=re.I)
     if len(text) > max_chars:
         shortened = text[:max_chars].rsplit(" ", 1)[0].rstrip(" ,;:-")
         sentence_end = max(shortened.rfind("."), shortened.rfind("!"), shortened.rfind("?"))
