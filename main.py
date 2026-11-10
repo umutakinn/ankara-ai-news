@@ -70,11 +70,12 @@ STOPWORDS = {
 
 def normalize(text):
     text = unescape(re.sub(r"<[^>]+>", " ", text or ""))
+    # Türkçedeki noktasız ı, ASCII temizliğinde kaybolmasın.
+    text = text.translate(str.maketrans({"ı": "i", "İ": "i"}))
     text = unicodedata.normalize("NFKD", text.lower())
     text = "".join(ch for ch in text if not unicodedata.combining(ch))
     text = re.sub(r"[^a-z0-9 ]+", " ", text)
-    return re.sub(r"\s+", " ", text).strip()
-
+    return re.sub(r"\\s+", " ", text).strip()
 
 def has_phrase(text, phrase):
     return f" {normalize(phrase)} " in f" {normalize(text)} "
@@ -179,6 +180,8 @@ def detect_national_location(title, summary, source_name):
 def is_really_about_ankara(title, summary, source_name):
     headline = clean_headline(title, source_name)
     h = normalize(headline)
+    body = normalize(clean_summary(summary, max_chars=1800))
+    combined = (h + " " + body).strip()
 
     directional = [
         "ankara istikametinde", "ankara yonunde", "ankara ya dogru",
@@ -187,24 +190,37 @@ def is_really_about_ankara(title, summary, source_name):
     if any(has_phrase(headline, phrase) for phrase in directional):
         return False
 
-    # Başlıkta Ankara veya Ankara ilçesi gerçek olay yeri olarak geçmeli.
-    if not any(has_phrase(headline, place) for place in ANKARA_PLACES):
+    # Başlıkta başka bir il açıkça olay yeri olarak verilmişse Ankara akışına alma.
+    title_has_ankara = any(has_phrase(headline, place) for place in ANKARA_PLACES)
+    title_has_other_city = any(has_phrase(headline, city) for city in OTHER_CITIES)
+    if title_has_other_city and not title_has_ankara:
         return False
 
-    # Başlıkta İzmir/Aliağa gibi başka bir yer belirtilmişse Ankara etiketi
-    # üzerinden içeri alınmasına izin verme.
-    other_city = any(has_phrase(headline, city) for city in OTHER_CITIES)
-    if other_city and not has_phrase(headline, "ankara"):
+    # Ankara/ilçe başlıkta geçiyorsa doğrudan yerel haber kabul et.
+    if title_has_ankara:
+        location_confirmed = True
+    else:
+        # Başlıkta Ankara yazmayan haberlerde özet içindeki açık Ankara bağlantısını ara.
+        strong_ankara_signals = [
+            "ankara merkezli", "ankarada", "ankaradan",
+            "ankara il emniyet", "ankara cumhuriyet bassavciligi",
+            "ankara cumhuriyet bassavciliginin", "ankara valiligi",
+            "ankara buyuksehir", "ankara polisi", "ankara jandarma",
+            "ankara savciligi", "ankara ilce emniyet"
+        ]
+        location_confirmed = any(normalize(signal) in combined for signal in strong_ankara_signals)
+
+    if not location_confirmed:
         return False
 
     event_terms = [
         "kaza", "trafik", "yol", "kapali", "kapandi", "yangin", "patlama",
         "gozalti", "operasyon", "polis", "emniyet", "valilik", "belediye",
         "deprem", "afet", "duyuru", "uyari", "denetim", "olay", "yarali",
-        "hayatini kaybetti", "toren", "ulasim", "su kesintisi", "elektrik"
+        "hayatini kaybetti", "toren", "ulasim", "su kesintisi", "elektrik",
+        "sorusturma", "supheli", "mahrem yapilanma"
     ]
-    return any(term in h for term in map(normalize, event_terms))
-
+    return any(normalize(term) in combined for term in event_terms)
 
 def clean_summary(summary, max_chars=480):
     # RSS özetlerindeki HTML ve gereksiz boşlukları temizle.
