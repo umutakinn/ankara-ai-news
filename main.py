@@ -531,7 +531,8 @@ def main():
 
                 direct = extract_direct_url(entry) or link
                 identity = event_key(title, published)
-                link_id = hashlib.sha256((identity + "|" + normalize(title)).encode("utf-8")).hexdigest()                if link_id in legacy:
+                link_id = hashlib.sha256((identity + "|" + normalize(title)).encode("utf-8")).hexdigest()
+                if link_id in legacy:
                     continue
                 candidates.append({
                     "id": link_id, "event_key": identity, "title": title,
