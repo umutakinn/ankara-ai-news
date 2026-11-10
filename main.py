@@ -317,9 +317,11 @@ def fetch_article_detail(url, headline):
                 paragraphs.append(cleaned)
         # İlk birkaç haber paragrafı, sayfa menüsü/alt bilgi yerine kullanılır.
         if paragraphs:
-            return clean_summary(" ".join(paragraphs[:4]), max_chars=900)
+            # Birkaç anlamlı paragrafı birlikte aktararak haberin gelişme
+            # ayrıntılarını da koru.
+            return clean_summary(" ".join(paragraphs[:5]), max_chars=1600)
         for description in parser.meta_descriptions:
-            cleaned = clean_summary(description, max_chars=900)
+            cleaned = clean_summary(description, max_chars=1200)
             if is_useful_detail(cleaned, headline):
                 return cleaned
     except (requests.RequestException, ValueError, TypeError) as error:
@@ -328,25 +330,28 @@ def fetch_article_detail(url, headline):
 
 
 def choose_real_detail(group, headline):
-    """RSS özeti başlık tekrarıysa kaynak sayfasından gerçek ayrıntıyı alır."""
+    """Birden fazla kaynaktan başlığı tekrarlamayan, daha kapsamlı haber özeti kurar."""
     details = []
-    for item in group[:3]:
-        rss_detail = clean_summary(item.get("summary", ""), max_chars=900)
+    # Birden fazla kaynağı kontrol et; RSS özeti kısa ise sayfanın içeriğini çek.
+    for item in group[:4]:
+        rss_detail = clean_summary(item.get("summary", ""), max_chars=1200)
         if is_useful_detail(rss_detail, headline):
             details.append(rss_detail)
         article_detail = fetch_article_detail(item.get("link", ""), headline)
         if is_useful_detail(article_detail, headline):
             details.append(article_detail)
-        if len(details) >= 3:
-            break
 
-    # En dolu, başlığı tekrarlamayan açıklamayı seç.
+    # Aynı ajans metninin kopyalarını çıkar, farklı ayrıntıları koru.
     unique = []
     for detail in sorted(details, key=len, reverse=True):
         if not any(similar(detail, old) for old in unique):
             unique.append(detail)
-    return unique[0] if unique else ""
 
+    if not unique:
+        return ""
+
+    # En fazla üç farklı metni birleştir; Telegram mesajı okunabilir kalsın.
+    return clean_summary(" ".join(unique[:3]), max_chars=1800)
 
 def get_published(entry):
     published = entry.get("published") or entry.get("updated")
