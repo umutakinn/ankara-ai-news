@@ -581,12 +581,12 @@ def main():
             print("Gerçek haber ayrıntısı bulunamadı; yalnızca uyarı gönderilecek:", primary["title"])
             if primary["id"] not in detail_notices:
                 notice = (
-                    f"🟠 HABER TESPİT EDİLDİ — AYRINTI BEKLENİYOR\\n\\n"
-                    f"📰 {primary['title']}\\n"
-                    f"🕒 {primary['date'].astimezone(ZoneInfo('Europe/Istanbul')).strftime('%d.%m.%Y %H:%M')}\\n"
-                    f"📍 {primary['location']}\\n"
-                    f"📰 Kaynak: {primary['source']}\\n\\n"
-                    "Kaynak sayfasından haber metni alınamadı. Yanlış bilgi üretmemek için bu bildirim Instagram paylaşım onay butonu içermez.\\n"
+                    f"🟠 HABER TESPİT EDİLDİ — AYRINTI BEKLENİYOR\n\n"
+                    f"📰 {primary['title']}\n"
+                    f"🕒 {primary['date'].astimezone(ZoneInfo('Europe/Istanbul')).strftime('%d.%m.%Y %H:%M')}\n"
+                    f"📍 {primary['location']}\n"
+                    f"📰 Kaynak: {primary['source']}\n\n"
+                    "Kaynak sayfasından haber metni alınamadı. Yanlış bilgi üretmemek için bu bildirim Instagram paylaşım onay butonu içermez.\n"
                     f"🔗 {primary['link']}"
                 )
                 try:
