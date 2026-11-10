@@ -373,9 +373,11 @@ def main():
             if corroborated else
             "⚠️ Tek kaynak; bağımsız teyit henüz bulunamadı"
         )
+        detail = primary.get("summary") or "İlk haber akışında olayın ayrıntıları sınırlı. Gelişmeler için kaynak bağlantılarını kontrol edin."
         message = (
             f"🚨 {primary['category']}\n\n"
-            f"📰 {primary['title']}\n"
+            f"📰 {primary['title']}\n\n"
+            f"📝 HABERİN DETAYI\n{detail}\n\n"
             f"🕒 {primary['date'].astimezone(ZoneInfo('Europe/Istanbul')).strftime('%d.%m.%Y %H:%M')}\n"
             f"📍 {primary['location']}\n"
             f"🔎 Doğrulama: {confirmation}\n\n"
