@@ -453,11 +453,12 @@ def main():
                 source_name, source_domain = get_source(entry)
                 title = clean_headline(raw_title, source_name)
                 if feed_type == "ANKARA":
-                    if not is_really_about_ankara(raw_title, summary, source_name):
-                        print("Ankara'da gerçekleştiği doğrulanamadı, elendi:", raw_title)
-                        continue
-                    category = "ANKARA GÜNDEM"
+                    # Ankara sorgularından gelen haberlerde artık ayrıca konum
+                    # filtresi uygulama. Başlıkta il/ilçe yoksa konumu doğrulanmadı yaz.
+                    category = "GÜNDEM"
                     location = detect_location(raw_title, source_name)
+                    if location == "Ankara (ilçe belirtilmemiş)":
+                        location = "Konum başlıkta belirtilmemiş"
                 else:
                     if not is_national_major_event(raw_title, summary, source_name):
                         print("Türkiye geneli için yeterince büyük olay değil, elendi:", raw_title)
