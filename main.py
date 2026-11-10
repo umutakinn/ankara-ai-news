@@ -123,6 +123,20 @@ def send_telegram(message):
     response.raise_for_status()
 
 
+def send_telegram_notice(message):
+    """Ayrıntısı alınamayan haber için yalnızca bilgilendirme gönderir; onay butonu içermez."""
+    response = requests.post(
+        f"https://api.telegram.org/bot{TOKEN}/sendMessage",
+        json={
+            "chat_id": CHAT_ID,
+            "text": message,
+            "disable_web_page_preview": True
+        },
+        timeout=20
+    )
+    response.raise_for_status()
+
+
 def get_source(entry):
     source = entry.get("source", {})
     href = source.get("href", "") if hasattr(source, "get") else ""
@@ -258,7 +272,6 @@ class ArticleTextParser(HTMLParser):
         self._parts = []
         self._in_jsonld = False
         self._script_parts = []
-
     def handle_starttag(self, tag, attrs):
         attrs = dict(attrs)
         if tag.lower() == "meta":
@@ -474,6 +487,7 @@ def main():
     state = load_state()
     sent = state.setdefault("sent", {})
     legacy = state.setdefault("legacy", {})
+    detail_notices = state.setdefault("detail_notices", {})
     now = datetime.now(timezone.utc)
     cutoff = now - timedelta(hours=3)
     candidates = []
@@ -517,8 +531,7 @@ def main():
 
                 direct = extract_direct_url(entry) or link
                 identity = event_key(title, published)
-                link_id = hashlib.sha256((identity + "|" + normalize(title)).encode("utf-8")).hexdigest()
-                if link_id in legacy:
+                link_id = hashlib.sha256((identity + "|" + normalize(title)).encode("utf-8")).hexdigest()                if link_id in legacy:
                     continue
                 candidates.append({
                     "id": link_id, "event_key": identity, "title": title,
@@ -565,8 +578,25 @@ def main():
         )
         detail = choose_real_detail(group, primary["title"])
         if not is_useful_detail(detail, primary["title"]):
-            print("Gerçek haber ayrıntısı bulunamadı; eksik içerik gönderilmedi:", primary["title"])
+            print("Gerçek haber ayrıntısı bulunamadı; yalnızca uyarı gönderilecek:", primary["title"])
+            if primary["id"] not in detail_notices:
+                notice = (
+                    f"🟠 HABER TESPİT EDİLDİ — AYRINTI BEKLENİYOR\\n\\n"
+                    f"📰 {primary['title']}\\n"
+                    f"🕒 {primary['date'].astimezone(ZoneInfo('Europe/Istanbul')).strftime('%d.%m.%Y %H:%M')}\\n"
+                    f"📍 {primary['location']}\\n"
+                    f"📰 Kaynak: {primary['source']}\\n\\n"
+                    "Kaynak sayfasından haber metni alınamadı. Yanlış bilgi üretmemek için bu bildirim Instagram paylaşım onay butonu içermez.\\n"
+                    f"🔗 {primary['link']}"
+                )
+                try:
+                    send_telegram_notice(notice)
+                    detail_notices[primary["id"]] = int(time.time())
+                    print("Ayrıntı bekleniyor bildirimi gönderildi:", primary["title"])
+                except Exception as error:
+                    print("Uyarı gönderim hatası:", error)
             continue
+        detail_notices.pop(primary["id"], None)
         message = (
             f"🚨 {primary['category']}\n\n"
             f"📰 {primary['title']}\n\n"
@@ -597,6 +627,10 @@ def main():
     }
     state["legacy"] = {
         k: v for k, v in legacy.items()
+        if isinstance(v, (int, float)) and v > limit
+    }
+    state["detail_notices"] = {
+        k: v for k, v in detail_notices.items()
         if isinstance(v, (int, float)) and v > limit
     }
     save_state(state)
