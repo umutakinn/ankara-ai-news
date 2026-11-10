@@ -7,6 +7,7 @@ import unicodedata
 import difflib
 import requests
 import feedparser
+from html.parser import HTMLParser
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 from email.utils import parsedate_to_datetime
@@ -218,6 +219,108 @@ def clean_summary(summary, max_chars=480):
     return text
 
 
+
+class ArticleTextParser(HTMLParser):
+    """Haber sayfalarından paragraf ve açıklama metinlerini toplar."""
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self.paragraphs = []
+        self.meta_descriptions = []
+        self._in_p = False
+        self._parts = []
+
+    def handle_starttag(self, tag, attrs):
+        attrs = dict(attrs)
+        if tag.lower() == "meta":
+            key = (attrs.get("property") or attrs.get("name") or "").lower()
+            if key in ("og:description", "description", "twitter:description", "article:description"):
+                value = (attrs.get("content") or "").strip()
+                if value:
+                    self.meta_descriptions.append(value)
+        elif tag.lower() == "p":
+            self._in_p = True
+            self._parts = []
+
+    def handle_data(self, data):
+        if self._in_p and data.strip():
+            self._parts.append(data.strip())
+
+    def handle_endtag(self, tag):
+        if tag.lower() == "p" and self._in_p:
+            value = re.sub(r"\s+", " ", " ".join(self._parts)).strip()
+            if len(value) >= 45:
+                self.paragraphs.append(value)
+            self._in_p = False
+            self._parts = []
+
+
+def is_useful_detail(text, headline=""):
+    text = clean_summary(text, max_chars=1200)
+    if len(text) < 90:
+        return False
+    ntext = normalize(text)
+    nhead = normalize(headline)
+    if nhead and (ntext == nhead or ntext.startswith(nhead + " ")):
+        remainder = ntext[len(nhead):].strip(" :.-")
+        if len(remainder) < 65:
+            return False
+    junk = ("google haberler", "google news", "haberin devamini oku", "tum haberleri gor")
+    return not any(x in ntext for x in junk)
+
+
+def fetch_article_detail(url, headline):
+    """Kaynak sayfasından gerçek haber paragrafı veya meta açıklaması alır."""
+    if not url:
+        return ""
+    try:
+        response = requests.get(
+            url, headers=HEADERS, allow_redirects=True, timeout=15
+        )
+        if response.status_code != 200:
+            return ""
+        content_type = response.headers.get("Content-Type", "").lower()
+        if "html" not in content_type and "<html" not in response.text[:1000].lower():
+            return ""
+        parser = ArticleTextParser()
+        parser.feed(response.text[:1500000])
+        paragraphs = []
+        for paragraph in parser.paragraphs:
+            cleaned = clean_summary(paragraph, max_chars=1200)
+            if is_useful_detail(cleaned, headline) and cleaned not in paragraphs:
+                paragraphs.append(cleaned)
+        # İlk birkaç haber paragrafı, sayfa menüsü/alt bilgi yerine kullanılır.
+        if paragraphs:
+            return clean_summary(" ".join(paragraphs[:4]), max_chars=900)
+        for description in parser.meta_descriptions:
+            cleaned = clean_summary(description, max_chars=900)
+            if is_useful_detail(cleaned, headline):
+                return cleaned
+    except (requests.RequestException, ValueError, TypeError) as error:
+        print("Haber ayrıntısı alınamadı:", error)
+    return ""
+
+
+def choose_real_detail(group, headline):
+    """RSS özeti başlık tekrarıysa kaynak sayfasından gerçek ayrıntıyı alır."""
+    details = []
+    for item in group[:3]:
+        rss_detail = clean_summary(item.get("summary", ""), max_chars=900)
+        if is_useful_detail(rss_detail, headline):
+            details.append(rss_detail)
+        article_detail = fetch_article_detail(item.get("link", ""), headline)
+        if is_useful_detail(article_detail, headline):
+            details.append(article_detail)
+        if len(details) >= 3:
+            break
+
+    # En dolu, başlığı tekrarlamayan açıklamayı seç.
+    unique = []
+    for detail in sorted(details, key=len, reverse=True):
+        if not any(similar(detail, old) for old in unique):
+            unique.append(detail)
+    return unique[0] if unique else ""
+
+
 def get_published(entry):
     published = entry.get("published") or entry.get("updated")
     if not published:
@@ -373,7 +476,10 @@ def main():
             if corroborated else
             "⚠️ Tek kaynak; bağımsız teyit henüz bulunamadı"
         )
-        detail = primary.get("summary") or "İlk haber akışında olayın ayrıntıları sınırlı. Gelişmeler için kaynak bağlantılarını kontrol edin."
+        detail = choose_real_detail(group, primary["title"])
+        if not is_useful_detail(detail, primary["title"]):
+            print("Gerçek haber ayrıntısı bulunamadı; eksik içerik gönderilmedi:", primary["title"])
+            continue
         message = (
             f"🚨 {primary['category']}\n\n"
             f"📰 {primary['title']}\n\n"
