@@ -7,6 +7,10 @@ import unicodedata
 import difflib
 import requests
 import feedparser
+try:
+    import trafilatura
+except ImportError:
+    trafilatura = None
 from html.parser import HTMLParser
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
@@ -292,7 +296,7 @@ class ArticleTextParser(HTMLParser):
 
 def is_useful_detail(text, headline=""):
     text = clean_summary(text, max_chars=1200)
-    if len(text) < 90:
+    if len(text) < 45:
         return False
 
     ntext = normalize(text)
@@ -330,6 +334,17 @@ def fetch_article_detail(url, headline):
         content_type = response.headers.get("Content-Type", "").lower()
         if "html" not in content_type and "<html" not in response.text[:1000].lower():
             return ""
+        # Önce haber odaklı çıkarıcıyı dene; sayfa HTML'i karmaşık olsa da
+        # articleBody metnini bulabilir.
+        if trafilatura is not None:
+            extracted = trafilatura.extract(
+                response.text, include_comments=False, include_tables=False,
+                favor_precision=True
+            )
+            cleaned_extracted = clean_summary(extracted or "", max_chars=1600)
+            if is_useful_detail(cleaned_extracted, headline):
+                return cleaned_extracted
+
         parser = ArticleTextParser()
         parser.feed(response.text[:1500000])
         paragraphs = []
