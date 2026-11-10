@@ -354,7 +354,7 @@ def fetch_article_detail(url, headline):
                 response.text, include_comments=False, include_tables=False,
                 favor_precision=True
             )
-            cleaned_extracted = clean_summary(extracted or "", max_chars=1600)
+            cleaned_extracted = clean_summary(extracted or "", max_chars=2500)
             if is_useful_detail(cleaned_extracted, headline):
                 return cleaned_extracted
 
@@ -362,14 +362,14 @@ def fetch_article_detail(url, headline):
         parser.feed(response.text[:1500000])
         paragraphs = []
         for paragraph in parser.paragraphs:
-            cleaned = clean_summary(paragraph, max_chars=1200)
+            cleaned = clean_summary(paragraph, max_chars=1800)
             if is_useful_detail(cleaned, headline) and cleaned not in paragraphs:
                 paragraphs.append(cleaned)
         # İlk birkaç haber paragrafı, sayfa menüsü/alt bilgi yerine kullanılır.
         if paragraphs:
             # Birkaç anlamlı paragrafı birlikte aktararak haberin gelişme
             # ayrıntılarını da koru.
-            return clean_summary(" ".join(paragraphs[:5]), max_chars=1600)
+            return clean_summary(" ".join(paragraphs[:7]), max_chars=2500)
         # Birçok haber sitesi gövde metnini JSON-LD articleBody alanında sunar.
         structured = []
         def collect_structured(value):
@@ -388,7 +388,7 @@ def fetch_article_detail(url, headline):
             except (ValueError, TypeError):
                 continue
         for candidate in structured + parser.meta_descriptions:
-            cleaned = clean_summary(candidate, max_chars=1600)
+            cleaned = clean_summary(candidate, max_chars=2500)
             if is_useful_detail(cleaned, headline):
                 return cleaned
     except (requests.RequestException, ValueError, TypeError) as error:
@@ -401,7 +401,7 @@ def choose_real_detail(group, headline):
     details = []
     # Birden fazla kaynağı kontrol et; RSS özeti kısa ise sayfanın içeriğini çek.
     for item in group[:4]:
-        rss_detail = clean_summary(item.get("summary", ""), max_chars=1200)
+        rss_detail = clean_summary(item.get("summary", ""), max_chars=1800)
         if is_useful_detail(rss_detail, headline):
             details.append(rss_detail)
         article_detail = fetch_article_detail(item.get("link", ""), headline)
@@ -418,7 +418,7 @@ def choose_real_detail(group, headline):
         return ""
 
     # En fazla üç farklı metni birleştir; Telegram mesajı okunabilir kalsın.
-    return clean_summary(" ".join(unique[:3]), max_chars=1800)
+    return clean_summary(" ".join(unique[:3]), max_chars=2800)
 
 def get_published(entry):
     published = entry.get("published") or entry.get("updated")
@@ -487,7 +487,6 @@ def main():
     state = load_state()
     sent = state.setdefault("sent", {})
     legacy = state.setdefault("legacy", {})
-    detail_notices = state.setdefault("detail_notices", {})
     now = datetime.now(timezone.utc)
     cutoff = now - timedelta(hours=3)
     candidates = []
@@ -538,7 +537,7 @@ def main():
                     "id": link_id, "event_key": identity, "title": title,
                     "link": direct, "date": published, "source": source_name,
                     "domain": source_domain, "location": location, "category": category,
-                    "summary": clean_summary(summary)
+                    "summary": clean_summary(summary, max_chars=1800)
                 })
         except Exception as error:
             print("Kaynak hatası:", error)
@@ -579,25 +578,8 @@ def main():
         )
         detail = choose_real_detail(group, primary["title"])
         if not is_useful_detail(detail, primary["title"]):
-            print("Gerçek haber ayrıntısı bulunamadı; yalnızca uyarı gönderilecek:", primary["title"])
-            if primary["id"] not in detail_notices:
-                notice = (
-                    f"🟠 HABER TESPİT EDİLDİ — AYRINTI BEKLENİYOR\n\n"
-                    f"📰 {primary['title']}\n"
-                    f"🕒 {primary['date'].astimezone(ZoneInfo('Europe/Istanbul')).strftime('%d.%m.%Y %H:%M')}\n"
-                    f"📍 {primary['location']}\n"
-                    f"📰 Kaynak: {primary['source']}\n\n"
-                    "Kaynak sayfasından haber metni alınamadı. Yanlış bilgi üretmemek için bu bildirim Instagram paylaşım onay butonu içermez.\n"
-                    f"🔗 {primary['link']}"
-                )
-                try:
-                    send_telegram_notice(notice)
-                    detail_notices[primary["id"]] = int(time.time())
-                    print("Ayrıntı bekleniyor bildirimi gönderildi:", primary["title"])
-                except Exception as error:
-                    print("Uyarı gönderim hatası:", error)
+            print("Gerçek haber özeti alınamadı; eksik içerik Telegram'a gönderilmeyecek:", primary["title"])
             continue
-        detail_notices.pop(primary["id"], None)
         message = (
             f"🚨 {primary['category']}\n\n"
             f"📰 {primary['title']}\n\n"
@@ -628,10 +610,6 @@ def main():
     }
     state["legacy"] = {
         k: v for k, v in legacy.items()
-        if isinstance(v, (int, float)) and v > limit
-    }
-    state["detail_notices"] = {
-        k: v for k, v in detail_notices.items()
         if isinstance(v, (int, float)) and v > limit
     }
     save_state(state)
