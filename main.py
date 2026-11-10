@@ -333,9 +333,10 @@ def is_useful_detail(text, headline=""):
 
 
 def fetch_article_detail(url, headline):
-    """Kaynak sayfasından gerçek haber paragrafı veya meta açıklaması alır."""
+    """Kaynak sayfasından gerçek haber metnini, gerekirse metin okuyucu üzerinden alır."""
     if not url:
         return ""
+    resolved_url = url
     try:
         # Google News RSS bağlantısını gerçek yayıncı adresine çöz.
         resolved_url = resolve_direct_link(url)
@@ -343,56 +344,79 @@ def fetch_article_detail(url, headline):
             resolved_url, headers=HEADERS, allow_redirects=True, timeout=20
         )
         if response.status_code != 200:
-            return ""
-        content_type = response.headers.get("Content-Type", "").lower()
-        if "html" not in content_type and "<html" not in response.text[:1000].lower():
-            return ""
-        # Önce haber odaklı çıkarıcıyı dene; sayfa HTML'i karmaşık olsa da
-        # articleBody metnini bulabilir.
-        if trafilatura is not None:
-            extracted = trafilatura.extract(
-                response.text, include_comments=False, include_tables=False,
-                favor_precision=True
-            )
-            cleaned_extracted = clean_summary(extracted or "", max_chars=2500)
-            if is_useful_detail(cleaned_extracted, headline):
-                return cleaned_extracted
+            print("Kaynak sayfası HTTP hatası:", response.status_code, resolved_url)
+        else:
+            content_type = response.headers.get("Content-Type", "").lower()
+            if "html" in content_type or "<html" in response.text[:1000].lower():
+                # Önce haber odaklı çıkarıcıyı dene.
+                if trafilatura is not None:
+                    extracted = trafilatura.extract(
+                        response.text, include_comments=False, include_tables=False,
+                        favor_precision=True
+                    )
+                    cleaned_extracted = clean_summary(extracted or "", max_chars=2500)
+                    if is_useful_detail(cleaned_extracted, headline):
+                        return cleaned_extracted
 
-        parser = ArticleTextParser()
-        parser.feed(response.text[:1500000])
-        paragraphs = []
-        for paragraph in parser.paragraphs:
-            cleaned = clean_summary(paragraph, max_chars=1800)
-            if is_useful_detail(cleaned, headline) and cleaned not in paragraphs:
-                paragraphs.append(cleaned)
-        # İlk birkaç haber paragrafı, sayfa menüsü/alt bilgi yerine kullanılır.
-        if paragraphs:
-            # Birkaç anlamlı paragrafı birlikte aktararak haberin gelişme
-            # ayrıntılarını da koru.
-            return clean_summary(" ".join(paragraphs[:7]), max_chars=2500)
-        # Birçok haber sitesi gövde metnini JSON-LD articleBody alanında sunar.
-        structured = []
-        def collect_structured(value):
-            if isinstance(value, dict):
-                for key, item in value.items():
-                    if key.lower() in ("articlebody", "description") and isinstance(item, str):
-                        structured.append(item)
-                    else:
-                        collect_structured(item)
-            elif isinstance(value, list):
-                for item in value:
-                    collect_structured(item)
-        for raw in parser.jsonld:
-            try:
-                collect_structured(json.loads(raw))
-            except (ValueError, TypeError):
-                continue
-        for candidate in structured + parser.meta_descriptions:
-            cleaned = clean_summary(candidate, max_chars=2500)
-            if is_useful_detail(cleaned, headline):
-                return cleaned
+                parser = ArticleTextParser()
+                parser.feed(response.text[:1500000])
+                paragraphs = []
+                for paragraph in parser.paragraphs:
+                    cleaned = clean_summary(paragraph, max_chars=1800)
+                    if is_useful_detail(cleaned, headline) and cleaned not in paragraphs:
+                        paragraphs.append(cleaned)
+                if paragraphs:
+                    return clean_summary(" ".join(paragraphs[:7]), max_chars=2500)
+
+                # JSON-LD articleBody ve meta description alanlarını da kontrol et.
+                structured = []
+                def collect_structured(value):
+                    if isinstance(value, dict):
+                        for key, item in value.items():
+                            if key.lower() in ("articlebody", "description") and isinstance(item, str):
+                                structured.append(item)
+                            else:
+                                collect_structured(item)
+                    elif isinstance(value, list):
+                        for item in value:
+                            collect_structured(item)
+                for raw in parser.jsonld:
+                    try:
+                        collect_structured(json.loads(raw))
+                    except (ValueError, TypeError):
+                        continue
+                for candidate in structured + parser.meta_descriptions:
+                    cleaned = clean_summary(candidate, max_chars=2500)
+                    if is_useful_detail(cleaned, headline):
+                        return cleaned
+            else:
+                print("Kaynak HTML döndürmedi:", content_type, resolved_url)
     except (requests.RequestException, ValueError, TypeError) as error:
-        print("Haber ayrıntısı alınamadı:", error)
+        print("Doğrudan haber metni alınamadı:", error)
+
+    # Bazı yayıncılar GitHub Actions gibi sunuculardan gelen istekleri engeller.
+    # Jina Reader yalnızca kaynak sayfanın metnini döndürür; başlık tekrarına
+    # benzeyen veya çok kısa içerik yine kabul edilmez.
+    try:
+        parsed = urlparse(resolved_url)
+        reader_url = "https://r.jina.ai/http://" + parsed.netloc + parsed.path
+        if parsed.query:
+            reader_url += "?" + parsed.query
+        reader_response = requests.get(
+            reader_url,
+            headers={"User-Agent": "Mozilla/5.0", "Accept": "text/plain"},
+            timeout=30
+        )
+        if reader_response.status_code == 200:
+            reader_detail = clean_summary(reader_response.text, max_chars=2500)
+            if is_useful_detail(reader_detail, headline):
+                print("Haber özeti metin okuyucu üzerinden alındı:", parsed.netloc)
+                return reader_detail
+            print("Metin okuyucu döndürdü ancak kullanılabilir özet bulunamadı:", parsed.netloc)
+        else:
+            print("Metin okuyucu HTTP hatası:", reader_response.status_code, parsed.netloc)
+    except (requests.RequestException, ValueError, TypeError) as error:
+        print("Metin okuyucu hatası:", error)
     return ""
 
 
