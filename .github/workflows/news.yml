@@ -4,6 +4,12 @@ on:
   schedule:
     - cron: "0 * * * *"
   workflow_dispatch:
+    inputs:
+      button_test:
+        description: "Telegram onay butonlarını test mesajıyla dene"
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -38,6 +44,40 @@ jobs:
 
       - name: Gerekli paketleri yükle
         run: pip install -r requirements.txt
+
+      - name: Telegram buton testi
+        if: ${{ inputs.button_test }}
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          python - <<'PY'
+          import os
+          import requests
+
+          token = os.environ["TELEGRAM_BOT_TOKEN"]
+          chat_id = os.environ["TELEGRAM_CHAT_ID"]
+          keyboard = {
+              "inline_keyboard": [[
+                  {"text": "✅ Instagram'da Paylaş", "callback_data": "approve:test-button"},
+                  {"text": "❌ Reddet", "callback_data": "reject:test-button"}
+              ]]
+          }
+          response = requests.post(
+              f"https://api.telegram.org/bot{token}/sendMessage",
+              json={
+                  "chat_id": chat_id,
+                  "text": "🧪 TEST MESAJI\n\nBu mesaj yalnızca Telegram onay butonlarını denemek içindir. Instagram'da paylaşım yapmaz.",
+                  "reply_markup": keyboard,
+                  "disable_web_page_preview": True
+              },
+              timeout=20
+          )
+          data = response.json()
+          if not response.ok or not data.get("ok"):
+              raise SystemExit(f"Telegram test gönderimi başarısız: {data}")
+          print("Telegram buton test mesajı gönderildi.")
+          PY
 
       - name: Haberleri tara
         run: python main.py
