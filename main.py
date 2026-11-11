@@ -141,7 +141,8 @@ def get_source(entry):
     source = entry.get("source", {})
     href = source.get("href", "") if hasattr(source, "get") else ""
     name = source.get("title", "") if hasattr(source, "get") else ""
-    domain = urlparse(href).netloc.lower().replace("www.", "") if href else ""
+    link = entry.get("link", "")
+    domain = urlparse(href or link).netloc.lower().replace("www.", "")
     return name or domain or "Kaynak", domain
 
 
@@ -518,14 +519,35 @@ def main():
     all_queries = [(q, "ANKARA") for q in ANKARA_QUERIES]
     all_queries += [(q, "TURKIYE") for q in NATIONAL_QUERIES]
 
+    # Google Haberler'e ek olarak yayıncıların kendi RSS akışları.
+    # Kaynaklardan gelen haberler Ankara yerel haberi veya yüksek etkili
+    # Türkiye haberi olarak sınıflandırılır; diğerleri akışa alınmaz.
+    direct_rss_feeds = [
+        ("TRT Haber", "https://www.trthaber.com/sondakika.rss"),
+        ("Anadolu Ajansı", "https://www.aa.com.tr/tr/rss/default?cat=guncel"),
+        ("NTV", "https://www.ntv.com.tr/son-dakika.rss"),
+        ("CNN Türk", "https://www.cnnturk.com/feed/rss/all/news"),
+        ("Sözcü", "https://www.sozcu.com.tr/rss/tum-haberler.xml"),
+        ("Habertürk", "https://www.haberturk.com/rss"),
+        ("Milliyet", "https://www.milliyet.com.tr/rss/rssnew/sondakikarss.xml"),
+        ("Hürriyet", "https://www.hurriyet.com.tr/rss/anasayfa")
+    ]
+    all_queries += [(feed_url, "DIRECT") for _, feed_url in direct_rss_feeds]
+
     for query, feed_type in all_queries:
-        url = (
-            "https://news.google.com/rss/search?q="
-            + quote("(" + query + ") when:3h")
-            + "&hl=tr&gl=TR&ceid=TR:tr"
-        )
+        if feed_type == "DIRECT":
+            url = query
+        else:
+            url = (
+                "https://news.google.com/rss/search?q="
+                + quote("(" + query + ") when:3h")
+                + "&hl=tr&gl=TR&ceid=TR:tr"
+            )
         try:
             feed = feedparser.parse(url)
+            if getattr(feed, "bozo", False):
+                print("RSS uyarısı:", url, getattr(feed, "bozo_exception", "bilinmeyen hata"))
+            print("RSS kontrol edildi:", url, "| Haber:", len(feed.entries))
             for entry in feed.entries:
                 raw_title = entry.get("title", "").strip()
                 link = entry.get("link", "").strip()
@@ -535,15 +557,22 @@ def main():
                 source_name, source_domain = get_source(entry)
                 title = clean_headline(raw_title, source_name)
                 if feed_type == "ANKARA":
-                    # Ankara sorgularından gelen haberlerde artık ayrıca konum
-                    # filtresi uygulama. Başlıkta il/ilçe yoksa konumu doğrulanmadı yaz.
+                    # Google Haberler'deki Ankara sorgularını mevcut davranışla koru.
                     category = "GÜNDEM"
                     location = detect_location(raw_title, source_name)
                     if location == "Ankara (ilçe belirtilmemiş)":
                         location = "Konum başlıkta belirtilmemiş"
+                elif feed_type == "DIRECT" and is_really_about_ankara(raw_title, summary, source_name):
+                    category = "GÜNDEM"
+                    location = detect_location(raw_title, source_name)
+                    if location == "Ankara (ilçe belirtilmemiş)":
+                        location = "Ankara bağlantısı özette belirtilmiş"
                 else:
                     if not is_national_major_event(raw_title, summary, source_name):
-                        print("Türkiye geneli için yeterince büyük olay değil, elendi:", raw_title)
+                        if feed_type == "DIRECT":
+                            print("Doğrudan RSS haberi yerel Ankara veya yüksek etkili ulusal haber değil, elendi:", raw_title)
+                        else:
+                            print("Türkiye geneli için yeterince büyük olay değil, elendi:", raw_title)
                         continue
                     category = "TÜRKİYE GÜNDEMİ"
                     location = detect_national_location(raw_title, summary, source_name)
